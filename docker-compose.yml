@@ -3,6 +3,11 @@ services:
     build: .
     ports:
       - "3000:80"
+    environment:
+      # For same-machine testing, keep host.docker.internal.
+      # For the exhibition setup, set this to the server Mac mini, for example:
+      # ML_API_BASE_URL=http://192.168.100.50:8001
+      ML_API_BASE_URL: ${ML_API_BASE_URL:-http://host.docker.internal:8001}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
