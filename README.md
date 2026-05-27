@@ -1,6 +1,6 @@
 # Wi-Fi Sensing Camera Demo
 
-Wi-Fi CSI sensing results are used to control whether a camera feed is displayed. This repository contains the UI container for the demo. A separate ML container is expected to collect/process CSI data and expose the latest detection result through an HTTP API.
+Wi-Fi CSI sensing results are used to control whether a camera feed is displayed. This repository contains the UI container for the exhibition demo. The UI is intended to run on the display Mac mini so the browser can access the camera connected directly to that machine.
 
 ## Goal
 
@@ -9,18 +9,28 @@ The demo shows a simple privacy-aware flow:
 - `normal`: no motion/anomaly detected, camera display stays OFF.
 - `abnormal`: motion/anomaly detected, camera display turns ON.
 
-The current app can run with mock detection results, but the intended production-like setup is a two-container deployment on one Mac mini.
+The current app can run with mock detection results, but the intended exhibition setup uses real processed CSI data from a GMKtec computer and an ML/API container running on a server Mac mini.
 
 ## System Overview
 
 ```text
-Wi-Fi CSI source
+Router / antennas
       |
       v
-ML container -> HTTP API (/latest) -> UI container -> browser dashboard
-                                           |
-                                           v
-                                  camera ON/OFF display
+GMKtec computer
+  CSI capture and processing
+      |
+      v
+Server Mac mini
+  ML/API container: GET /latest
+      |
+      v
+Display Mac mini
+  UI container: http://localhost:3000
+  directly connected camera
+      |
+      v
+Exhibition display
 ```
 
 ## Repository Role
@@ -56,25 +66,29 @@ The development server runs the Vite app. In the UI, use `mock` mode for dummy d
 
 ## Docker Run
 
-Build and run the UI container:
+Build and run the UI container on the display Mac mini:
 
 ```sh
-docker compose up --build
+ML_API_BASE_URL=http://<server-mac-mini-ip>:8001 docker compose up --build
 ```
 
-Then open:
+Then open this on the display Mac mini:
 
 ```text
 http://localhost:3000
 ```
 
-The default nginx config proxies:
+The browser should use `/api/ml/latest`. The UI container proxies that request to:
 
 ```text
-/api/ml/latest -> http://host.docker.internal:8001/latest
+${ML_API_BASE_URL}/latest
 ```
 
-So the ML API should expose port `8001` on the Mac mini host.
+For same-machine testing, the default is:
+
+```text
+http://host.docker.internal:8001/latest
+```
 
 ## ML API Contract
 
@@ -100,14 +114,15 @@ See [docs/API.md](docs/API.md) for the recommended API contract.
 
 ## Deployment Plan
 
-The intended Mac mini setup is:
+The intended exhibition setup is:
 
-1. Run the ML container and expose `8001:8001`.
-2. Run this UI container and expose `3000:80`.
-3. Open `http://<mac-mini-ip>:3000` from a browser.
-4. Switch the UI to `ML API` mode and use `/api/ml/latest`.
+1. GMKtec captures/processes CSI data and sends it to the server Mac mini.
+2. Server Mac mini runs the ML/API container and exposes `8001:8001`.
+3. Display Mac mini runs this UI container and exposes `3000:80` locally.
+4. Display Mac mini opens `http://localhost:3000` in the browser.
+5. In the UI, choose `ML API接続` and use `/api/ml/latest`.
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details and options.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
 
 ## Current Limitations
 
