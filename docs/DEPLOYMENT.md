@@ -1,63 +1,38 @@
-# Mac Mini Deployment
+# Exhibition Deployment
 
-This project is designed to run on one Mac mini with two containers:
+The exhibition setup uses two Mac minis plus a GMKtec computer.
 
-1. UI container from this repository.
-2. ML container from the Wi-Fi sensing machine learning project.
+## Machine Roles
+
+| Machine | Role | Runs |
+| --- | --- | --- |
+| Display Mac mini | Browser and directly connected camera | UI container from this repository |
+| Server Mac mini | Data/API server | ML/API container |
+| GMKtec | Wi-Fi CSI capture and processing | CSI capture/processing program |
+
+The display Mac mini runs the UI locally so the browser can open `http://localhost:3000` and access the camera connected directly to the display Mac mini.
+
+## Data Flow
+
+```text
+Router / antennas
+  -> GMKtec
+  -> Server Mac mini ML/API container
+  -> Display Mac mini UI container proxy
+  -> Display Mac mini browser
+  -> Exhibition display
+```
 
 ## Target Ports
 
-| Service | Container Port | Host Port | Purpose |
-| --- | --- | --- | --- |
-| UI | 80 | 3000 | Browser dashboard |
-| ML API | 8001 | 8001 | Latest detection result |
+| Service | Machine | Container Port | Host Port | Purpose |
+| --- | --- | --- | --- | --- |
+| UI | Display Mac mini | 80 | 3000 | Browser dashboard |
+| ML API | Server Mac mini | 8001 | 8001 | Latest detection result |
 
-## Recommended Runtime Layout
+## Start the ML/API Container
 
-```text
-Mac mini
-  docker network
-    ui container
-      nginx
-      React static files
-      /api/ml/latest proxy
-    ml-api container
-      CSI ingestion
-      ML inference
-      GET /latest
-```
-
-The current `nginx.conf` proxies the UI API path to:
-
-```text
-http://host.docker.internal:8001/latest
-```
-
-That means the ML container should publish its API to the Mac mini host on port `8001`.
-
-## Start the UI Container
-
-From this repository:
-
-```sh
-docker compose up --build
-```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-From another machine on the same network, use:
-
-```text
-http://<mac-mini-ip>:3000
-```
-
-## Start the ML Container
-
-The ML repository should expose a compatible API on port `8001`.
+On the server Mac mini, the ML repository should expose a compatible API on port `8001`.
 
 Example shape:
 
@@ -78,26 +53,82 @@ GET /latest
 
 See `docs/API.md` for the response contract.
 
-## UI Configuration
+Before starting the display UI, confirm the display Mac mini can reach the server Mac mini:
+
+```sh
+curl http://<server-mac-mini-ip>:8001/latest
+```
+
+## Start the UI Container
+
+On the display Mac mini, run this repository and point the proxy at the server Mac mini:
+
+```sh
+ML_API_BASE_URL=http://<server-mac-mini-ip>:8001 docker compose up --build
+```
+
+Open this on the display Mac mini:
+
+```text
+http://localhost:3000
+```
 
 In the UI, choose:
 
 - ML result source: `ML API接続`
 - API URL: `/api/ml/latest`
+- Camera input: `ブラウザのカメラ`
 
-For camera input, choose one of:
+## How the Proxy Works
 
-- `ブラウザのカメラ`: a camera directly accessible from the browser.
-- `カメラURL`: an IP camera, MJPEG stream, image URL, or video URL.
+The browser calls only the local UI origin:
 
-## Why Proxy Through nginx
+```text
+http://localhost:3000/api/ml/latest
+```
 
-Using `/api/ml/latest` keeps the browser URL stable. The browser talks only to the UI origin, and nginx forwards the request to the ML service. This avoids most CORS problems and makes the UI independent from the ML container's internal location.
+nginx inside the UI container forwards that request to:
+
+```text
+${ML_API_BASE_URL}/latest
+```
+
+For the exhibition setup, `ML_API_BASE_URL` should point to the server Mac mini:
+
+```text
+http://<server-mac-mini-ip>:8001
+```
+
+This keeps camera access local to the display Mac mini while still allowing the UI to read the ML result from the server Mac mini.
+
+## Same-Machine Test Mode
+
+If the UI and ML API are running on the same Mac for development, omit `ML_API_BASE_URL` and use the default:
+
+```text
+http://host.docker.internal:8001
+```
+
+Then start the UI with:
+
+```sh
+docker compose up --build
+```
+
+## Exhibition Checklist
+
+- Display Mac mini opens `http://localhost:3000`.
+- Browser camera permission is granted on the display Mac mini.
+- `curl http://<server-mac-mini-ip>:8001/latest` works from the display Mac mini.
+- UI API URL is `/api/ml/latest`.
+- The UI is switched from mock mode to `ML API接続`.
+- GMKtec is sending processed CSI data to the server Mac mini.
+- The ML/API container returns `normal` and `abnormal` values in the expected format.
 
 ## Next Integration Tasks
 
 - Replace the dummy CSI heatmap with values from the ML API.
 - Display the ML container timestamp instead of local fetch time.
 - Add a health endpoint such as `GET /health` to the ML API.
-- Decide whether the two containers should be managed by one parent Compose file or separate Compose files.
-- Add basic uptime/restart logging for the Mac mini demo environment.
+- Decide how GMKtec sends processed data to the ML/API container, for example `POST /csi`.
+- Add basic uptime/restart logging for the exhibition environment.
