@@ -1,73 +1,132 @@
-# React + TypeScript + Vite
+# Wi-Fi Sensing Camera Demo
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Wi-Fi CSI sensing results are used to control whether a camera feed is displayed. This repository contains the UI container for the exhibition demo. The UI is intended to run on the display Mac mini so the browser can access the camera connected directly to that machine.
 
-Currently, two official plugins are available:
+## Goal
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The demo shows a simple privacy-aware flow:
 
-## React Compiler
+- `normal`: no motion/anomaly detected, camera display stays OFF.
+- `abnormal`: motion/anomaly detected, camera display turns ON.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The current app can run with mock detection results, but the intended exhibition setup uses real processed CSI data from a GMKtec computer and an ML/API container running on a server Mac mini.
 
-## Expanding the ESLint configuration
+## System Overview
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+Router / antennas
+      |
+      v
+GMKtec computer
+  CSI capture and processing
+      |
+      v
+Server Mac mini
+  ML/API container: GET /latest
+      |
+      v
+Display Mac mini
+  UI container: http://localhost:3000
+  directly connected camera
+      |
+      v
+Exhibition display
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Repository Role
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+This repository owns only the UI side:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- React/TypeScript dashboard
+- ML result polling
+- camera ON/OFF display logic
+- browser camera or camera stream URL display
+- nginx proxy from `/api/ml/latest` to the ML API
+
+The Wi-Fi sensing and machine learning code should live in a separate repository/container.
+
+## Tech Stack
+
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS
+- Framer Motion
+- lucide-react
+- Docker + nginx for production serving
+
+## Local Development
+
+```sh
+npm install
+npm run dev
 ```
+
+The development server runs the Vite app. In the UI, use `mock` mode for dummy data or switch to `ML API` mode and set the API URL manually.
+
+## Docker Run
+
+Build and run the UI container on the display Mac mini:
+
+```sh
+ML_API_BASE_URL=http://<server-mac-mini-ip>:8001 docker compose up --build
+```
+
+Then open this on the display Mac mini:
+
+```text
+http://localhost:3000
+```
+
+The browser should use `/api/ml/latest`. The UI container proxies that request to:
+
+```text
+${ML_API_BASE_URL}/latest
+```
+
+For same-machine testing, the default is:
+
+```text
+http://host.docker.internal:8001/latest
+```
+
+## ML API Contract
+
+The minimum response expected by the UI is:
+
+```json
+{
+  "status": "normal",
+  "anomalyScore": 0.12
+}
+```
+
+or:
+
+```json
+{
+  "status": "abnormal",
+  "anomalyScore": 0.91
+}
+```
+
+See [docs/API.md](docs/API.md) for the recommended API contract.
+
+## Deployment Plan
+
+The intended exhibition setup is:
+
+1. GMKtec captures/processes CSI data and sends it to the server Mac mini.
+2. Server Mac mini runs the ML/API container and exposes `8001:8001`.
+3. Display Mac mini runs this UI container and exposes `3000:80` locally.
+4. Display Mac mini opens `http://localhost:3000` in the browser.
+5. In the UI, choose `ML API接続` and use `/api/ml/latest`.
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
+
+## Current Limitations
+
+- CSI heatmap is currently dummy UI data.
+- ML API integration currently reads only the latest status and score.
+- Timestamp from the ML API is not yet displayed; the UI uses local fetch time.
+- The project does not yet include the ML container implementation.
