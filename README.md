@@ -1,6 +1,6 @@
 # Wi-Fi Sensing Camera Demo
 
-Wi-Fi CSI sensing results are used to control whether a camera feed is displayed. This repository contains the UI container for the exhibition demo. The UI is intended to run on the display Mac mini so the browser can access the camera connected directly to that machine.
+Wi-Fi CSI sensing results are used to control whether a camera feed is displayed. This repository contains the UI container for the exhibition demo. The UI runs on the exhibition Mac mini so the browser can access the camera connected directly to that machine.
 
 ## Goal
 
@@ -9,7 +9,7 @@ The demo shows a simple privacy-aware flow:
 - `normal`: no motion/anomaly detected, camera display stays OFF.
 - `abnormal`: motion/anomaly detected, camera display turns ON.
 
-The current app can run with mock detection results, but the intended exhibition setup uses real processed CSI data from a GMKtec computer and an ML/API container running on a server Mac mini.
+The current app can run with mock detection results. In the exhibition setup, a GMKtec computer sends preprocessed CSI data to the ML/API container running on the same Mac mini as this UI container.
 
 ## System Overview
 
@@ -18,14 +18,11 @@ Router / antennas
       |
       v
 GMKtec computer
-  CSI capture and processing
+  CSI capture and preprocessing
       |
       v
-Server Mac mini
-  ML/API container: GET /latest
-      |
-      v
-Display Mac mini
+Exhibition Mac mini
+  ML/API container: POST /csi, GET /latest
   UI container: http://localhost:3000
   directly connected camera
       |
@@ -41,9 +38,9 @@ This repository owns only the UI side:
 - ML result polling
 - camera ON/OFF display logic
 - browser camera or camera stream URL display
-- nginx proxy from `/api/ml/latest` to the ML API
+- nginx proxy from `/api/ml/latest` to the local ML/API container
 
-The Wi-Fi sensing and machine learning code should live in a separate repository/container.
+The Wi-Fi sensing and anomaly detection API lives in `makina70/wifi-csi-anomaly-api`.
 
 ## Tech Stack
 
@@ -66,13 +63,19 @@ The development server runs the Vite app. In the UI, use `mock` mode for dummy d
 
 ## Docker Run
 
-Build and run the UI container on the display Mac mini:
+First, start the ML/API container from `wifi-csi-anomaly-api` on the same Mac mini. It should expose:
 
-```sh
-ML_API_BASE_URL=http://<server-mac-mini-ip>:8001 docker compose up --build
+```text
+http://localhost:8001/latest
 ```
 
-Then open this on the display Mac mini:
+Then build and run the UI container:
+
+```sh
+docker compose up --build
+```
+
+Open this on the same Mac mini:
 
 ```text
 http://localhost:3000
@@ -81,13 +84,13 @@ http://localhost:3000
 The browser should use `/api/ml/latest`. The UI container proxies that request to:
 
 ```text
-${ML_API_BASE_URL}/latest
+http://host.docker.internal:8001/latest
 ```
 
-For same-machine testing, the default is:
+If the ML/API is moved to another machine later, override the proxy target:
 
-```text
-http://host.docker.internal:8001/latest
+```sh
+ML_API_BASE_URL=http://<ml-api-host>:8001 docker compose up --build
 ```
 
 ## ML API Contract
@@ -110,16 +113,18 @@ or:
 }
 ```
 
+The current ML/API may also return fields such as `reconstructionError`, `threshold`, `samplesBuffered`, and `windowSize`. The UI can ignore those unless it is extended to display model diagnostics.
+
 See [docs/API.md](docs/API.md) for the recommended API contract.
 
 ## Deployment Plan
 
 The intended exhibition setup is:
 
-1. GMKtec captures/processes CSI data and sends it to the server Mac mini.
-2. Server Mac mini runs the ML/API container and exposes `8001:8001`.
-3. Display Mac mini runs this UI container and exposes `3000:80` locally.
-4. Display Mac mini opens `http://localhost:3000` in the browser.
+1. GMKtec captures/preprocesses CSI data and sends it to the exhibition Mac mini.
+2. Exhibition Mac mini runs the ML/API container and exposes `8001:8001`.
+3. Exhibition Mac mini runs this UI container and exposes `3000:80`.
+4. Exhibition Mac mini opens `http://localhost:3000` in the browser.
 5. In the UI, choose `ML API接続` and use `/api/ml/latest`.
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
@@ -129,4 +134,4 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
 - CSI heatmap is currently dummy UI data.
 - ML API integration currently reads only the latest status and score.
 - Timestamp from the ML API is not yet displayed; the UI uses local fetch time.
-- The project does not yet include the ML container implementation.
+- `warming_up` from the ML/API is not yet shown as a dedicated UI state.
