@@ -1,106 +1,62 @@
 # Wi-Fi Sensing Camera Demo
 
-Wi-Fi CSI sensing results are used to control whether a camera feed is displayed. This repository contains the UI container for the exhibition demo. The UI runs on the exhibition Mac mini so the browser can access the camera connected directly to that machine.
+This repository contains the Web app container for the Wi-Fi CSI exhibition system.
 
-## Goal
+The Web app runs on the Mac mini. It polls the local ML API, shows the latest normal/abnormal result, and turns the camera display on only when motion is detected.
 
-The demo shows a simple privacy-aware flow:
-
-- `normal`: no motion/anomaly detected, camera display stays OFF.
-- `abnormal`: motion/anomaly detected, camera display turns ON.
-
-The current app can run with mock detection results. In the exhibition setup, a GMKtec computer sends preprocessed CSI data to the ML/API container running on the same Mac mini as this UI container.
-
-## System Overview
+## Role
 
 ```text
-Router / antennas
-      |
-      v
-GMKtec computer
-  CSI capture and preprocessing
-      |
-      v
-Exhibition Mac mini
-  ML/API container: POST /csi, GET /latest
-  UI container: http://localhost:3000
-  directly connected camera
-      |
-      v
-Exhibition display
+GMKtec
+  PicoScenes -> .csi -> motionScore -> POST /csi
+
+Mac mini
+  ML API container -> GET /latest result
+  Web app container -> dashboard and camera display
 ```
 
-## Repository Role
-
-This repository owns only the UI side:
+This repository owns only the Web app part:
 
 - React/TypeScript dashboard
 - ML result polling
+- normal/abnormal display
 - camera ON/OFF display logic
-- browser camera or camera stream URL display
-- nginx proxy from `/api/ml/latest` to the local ML/API container
+- nginx proxy from `/api/ml/latest` to the local ML API container
 
-The Wi-Fi sensing and anomaly detection API lives in `makina70/wifi-csi-anomaly-api`.
-
-## Tech Stack
-
-- React 19
-- TypeScript
-- Vite
-- Tailwind CSS
-- Framer Motion
-- lucide-react
-- Docker + nginx for production serving
-
-## Local Development
-
-```sh
-npm install
-npm run dev
-```
-
-The development server runs the Vite app. In the UI, use `mock` mode for dummy data or switch to `ML API` mode and set the API URL manually.
-
-## Docker Run
-
-First, start the ML/API container from `wifi-csi-anomaly-api` on the same Mac mini. It should expose:
+The ML API repository is:
 
 ```text
-http://localhost:8001/latest
+https://github.com/makina70/wifi-csi-anomaly-api
 ```
 
-Then build and run the UI container:
-
-```sh
-docker compose up --build
-```
-
-Open this on the same Mac mini:
+The GMKtec CSI agent is managed in:
 
 ```text
-http://localhost:3000
+https://github.com/makina70/PicoScenes-Python-Toolbox
+branch: codex/gmktec-csi-agent
 ```
 
-The browser should use `/api/ml/latest`. The UI container proxies that request to:
+## Current Behavior
+
+The UI reads:
+
+```text
+GET /api/ml/latest
+```
+
+The nginx container proxies that request to:
 
 ```text
 http://host.docker.internal:8001/latest
 ```
 
-If the ML/API is moved to another machine later, override the proxy target:
-
-```sh
-ML_API_BASE_URL=http://<ml-api-host>:8001 docker compose up --build
-```
-
-## ML API Contract
-
-The minimum response expected by the UI is:
+The ML API currently returns:
 
 ```json
 {
   "status": "normal",
-  "anomalyScore": 0.12
+  "anomalyScore": 0.08,
+  "threshold": 0.4
 }
 ```
 
@@ -109,29 +65,115 @@ or:
 ```json
 {
   "status": "abnormal",
-  "anomalyScore": 0.91
+  "anomalyScore": 0.62,
+  "threshold": 0.4
 }
 ```
 
-The current ML/API may also return fields such as `reconstructionError`, `threshold`, `samplesBuffered`, and `windowSize`. The UI can ignore those unless it is extended to display model diagnostics.
+When `status` is `abnormal`, the Web app turns the camera display on.
 
-See [docs/API.md](docs/API.md) for the recommended API contract.
+When `status` is `normal`, the camera display stays off.
 
-## Deployment Plan
+## Tech Stack
 
-The intended exhibition setup is:
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- Framer Motion
+- lucide-react
+- Docker
+- nginx
 
-1. GMKtec captures/preprocesses CSI data and sends it to the exhibition Mac mini.
-2. Exhibition Mac mini runs the ML/API container and exposes `8001:8001`.
-3. Exhibition Mac mini runs this UI container and exposes `3000:80`.
-4. Exhibition Mac mini opens `http://localhost:3000` in the browser.
-5. In the UI, choose `ML API接続` and use `/api/ml/latest`.
+## Local Development
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
+```sh
+npm install
+npm run dev
+```
 
-## Current Limitations
+For local UI-only work, use mock mode in the app.
 
-- CSI heatmap is currently dummy UI data.
-- ML API integration currently reads only the latest status and score.
-- Timestamp from the ML API is not yet displayed; the UI uses local fetch time.
-- `warming_up` from the ML/API is not yet shown as a dedicated UI state.
+For real ML API integration, run `wifi-csi-anomaly-api` on the same Mac mini and use:
+
+```text
+/api/ml/latest
+```
+
+## Docker Run On The Mac Mini
+
+Start the ML API first:
+
+```sh
+cd ../wifi-csi-anomaly-api
+docker compose up -d --build
+```
+
+Then start this Web app:
+
+```sh
+cd ../wifi-camera-demo
+docker compose up -d --build
+```
+
+Open on the Mac mini:
+
+```text
+http://localhost:3000
+```
+
+In the Web app, use:
+
+```text
+ML API接続
+API URL: /api/ml/latest
+Camera input: ブラウザのカメラ
+```
+
+## Docker Settings
+
+`docker-compose.yml` exposes the Web app on port `3000`.
+
+```yaml
+ports:
+  - "3000:80"
+```
+
+The default ML API target is:
+
+```yaml
+ML_API_BASE_URL: http://host.docker.internal:8001
+```
+
+If the ML API is moved to another machine, override it:
+
+```sh
+ML_API_BASE_URL=http://<ml-api-host>:8001 docker compose up -d --build
+```
+
+## Exhibition Flow
+
+1. GMKtec captures CSI with PicoScenes.
+2. GMKtec CSI agent converts CSI into `motionScore`.
+3. GMKtec posts `motionScore` to the ML API on the Mac mini.
+4. ML API computes `anomalyScore` and `status`.
+5. Web app polls `/api/ml/latest`.
+6. Web app displays normal/abnormal and controls the camera display.
+
+## Update From GitHub
+
+On the Mac mini:
+
+```sh
+git pull
+docker compose down
+docker compose up -d --build
+```
+
+## Notes
+
+- The Web app does not perform CSI processing.
+- The Web app does not perform anomaly detection.
+- The Web app only displays the latest result returned by the ML API.
+- The CSI heatmap panel is still a visual placeholder.
+- During ML API calibration, `/latest` may return `warming_up`; the current UI is intended for the active `normal` / `abnormal` state after calibration.
